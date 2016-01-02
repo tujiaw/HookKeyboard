@@ -8,6 +8,20 @@ namespace Ui {
 class Dialog;
 }
 
+class Global : public QObject
+{
+    Q_OBJECT
+public:
+    static Global* instance()
+    {
+        static Global s_instance;
+        return &s_instance;
+    }
+
+signals:
+    void sigNewInput(const QString &dt, const QString &text);
+};
+
 class Dialog : public QDialog
 {
     Q_OBJECT
@@ -22,6 +36,8 @@ private:
     void slotResetStart();
     void slotResetEnd();
     void slotActivated(QSystemTrayIcon::ActivationReason reason);
+    void slotClear();
+    void slotNewInput(const QString &dt, const QString &text);
 
 protected:
     void closeEvent(QCloseEvent *event);

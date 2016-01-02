@@ -6,47 +6,6 @@
 
 #pragma comment(lib, "User32.lib")
 
-QMap<quint64, QString> s_data;
-HHOOK s_hook = NULL;
-LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
-{
-    char szDebug[256];
-    if (nCode == HC_ACTION) {
-        PKBDLLHOOKSTRUCT pKeyboardHookStruct = (PKBDLLHOOKSTRUCT)lParam;
-        if ((wParam == WM_KEYDOWN) || (wParam == WM_SYSKEYDOWN)) {
-            BYTE KeyboardState[256];
-            ZeroMemory(KeyboardState, sizeof(KeyboardState));
-            GetKeyboardState(KeyboardState);
-
-            KeyboardState[VK_SHIFT] = (BYTE)(GetKeyState(VK_LSHIFT) | GetKeyState(VK_RSHIFT));
-            KeyboardState[VK_CAPITAL] = (BYTE)GetKeyState(VK_CAPITAL);
-
-            WORD wChar;
-            int iNumChar = ToAscii(pKeyboardHookStruct->vkCode, pKeyboardHookStruct->scanCode, KeyboardState, &wChar, 0);
-            if (iNumChar >= 1) {
-                _snprintf_s(szDebug, 255, "%c", wChar);
-                s_data[QDateTime::currentDateTime().toMSecsSinceEpoch()] = szDebug;
-            }
-
-            if (iNumChar <= 0) {
-                char KeyText[20];
-                ZeroMemory(KeyText, sizeof(KeyText));
-
-                LONG Flags = 0;
-                Flags = pKeyboardHookStruct->scanCode << 16;
-                Flags |= pKeyboardHookStruct->flags << 24;
-
-                if (GetKeyNameTextA(Flags, KeyText, 20) > 0) {
-                    _snprintf_s(szDebug, 255, "%s", KeyText);
-                    s_data[QDateTime::currentDateTime().toMSecsSinceEpoch()] = szDebug;
-                }
-            }
-        }
-    }
-
-    return CallNextHookEx(s_hook, nCode, wParam, lParam);
-}
-
 quint64 dt2ms(const QDateTime &dt)
 {
     return dt.toMSecsSinceEpoch(); //dt.toString("yyyy/MM/dd hh:mm:ss.zzz");
@@ -59,6 +18,50 @@ QDateTime ms2dt(quint64 ms)
     return dt;
 }
 
+QString msFormat(quint64 ms)
+{
+    return ms2dt(ms).toString("yyyy/MM/dd hh:mm:ss.zzz");
+}
+
+QMap<quint64, QString> s_data;
+HHOOK s_hook = NULL;
+LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
+{
+    if (nCode == HC_ACTION) {
+        PKBDLLHOOKSTRUCT pKeyboardHookStruct = (PKBDLLHOOKSTRUCT)lParam;
+        if ((wParam == WM_KEYUP) || (wParam == WM_SYSKEYUP)) {
+            BYTE KeyboardState[256];
+            ZeroMemory(KeyboardState, sizeof(KeyboardState));
+            GetKeyboardState(KeyboardState);
+
+            KeyboardState[VK_SHIFT] = (BYTE)(GetKeyState(VK_LSHIFT) | GetKeyState(VK_RSHIFT));
+            KeyboardState[VK_CAPITAL] = (BYTE)GetKeyState(VK_CAPITAL);
+
+            wchar_t wstr[64] = {0};
+            int iNumChar = ToUnicode(pKeyboardHookStruct->vkCode, pKeyboardHookStruct->scanCode, KeyboardState, wstr, _countof(wstr), 0);
+            if (iNumChar >= 1) {
+                quint64 key = QDateTime::currentDateTime().toMSecsSinceEpoch();
+                QString value = QString::fromStdWString(wstr);
+                s_data[key] = value;
+                emit Global::instance()->sigNewInput(msFormat(key), value);
+            } else {
+                wchar_t keyText[64] = {0};
+                LONG Flags = 0;
+                Flags = pKeyboardHookStruct->scanCode << 16;
+                Flags |= pKeyboardHookStruct->flags << 24;
+
+                if (GetKeyNameText(Flags, keyText, 64) > 0) {
+                    quint64 key = QDateTime::currentDateTime().toMSecsSinceEpoch();
+                    QString value = QString("[%1]").arg(QString::fromWCharArray(keyText));
+                    s_data[key] = value;
+                    emit Global::instance()->sigNewInput(msFormat(key), value);
+                }
+            }
+        }
+    }
+
+    return CallNextHookEx(s_hook, nCode, wParam, lParam);
+}
 
 Dialog::Dialog(QWidget *parent) :
     QDialog(parent),
@@ -71,6 +74,8 @@ Dialog::Dialog(QWidget *parent) :
     connect(ui->pbGet, &QPushButton::clicked, this, &Dialog::slotGet);
     connect(ui->pbResetStart, &QPushButton::clicked, this, &Dialog::slotResetStart);
     connect(ui->pbResetEnd, &QPushButton::clicked, this, &Dialog::slotResetEnd);
+    connect(ui->pbClear, &QPushButton::clicked, this, &Dialog::slotClear);
+    connect(Global::instance(), &Global::sigNewInput, this, &Dialog::slotNewInput);
 
     QMenu *menu = new QMenu;
     QAction *acShow = new QAction("Show", menu);
@@ -153,6 +158,17 @@ void Dialog::slotActivated(QSystemTrayIcon::ActivationReason reason)
             this->hide();
         }
     }
+}
+
+void Dialog::slotClear()
+{
+    ui->lwContent->clear();
+}
+
+void Dialog::slotNewInput(const QString &dt, const QString &text)
+{
+    ui->lwContent->addItem(dt + " - " + text);
+    ui->lwContent->scrollToBottom();
 }
 
 void Dialog::closeEvent(QCloseEvent *event)
